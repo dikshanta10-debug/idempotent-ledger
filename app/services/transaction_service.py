@@ -11,23 +11,25 @@ from fastapi import HTTPException
 async def process_transaction(
     db: AsyncSession,
     idempotency_key: str,
-    request: TransactionRequest
+    request: TransactionRequest,
+    redis_client=None
 ) -> dict:
-    redis = await get_redis()
+    if redis_client is None:
+        redis_client = await get_redis()
     idem_key = f"idempotency:{idempotency_key}"
     lock_key = f"lock:{idempotency_key}"
 
     # 1. Check cache
-    cached = await redis.get(idem_key)
+    cached = await redis_client.get(idem_key)
     if cached:
         return json.loads(cached)
 
     # 2. Check if in-flight
-    lock_acquired = await redis.setnx(lock_key, "1")
+    lock_acquired = await redis_client.setnx(lock_key, "1")
     if not lock_acquired:
         raise HTTPException(status_code=409, detail="Transaction with this idempotency key is currently being processed")
     try:
-        await redis.expire(lock_key, 10)
+        await redis_client.expire(lock_key, 10)
 
         # Lock sender row
         sender = (await db.execute(
@@ -38,18 +40,15 @@ async def process_transaction(
         if sender.balance < request.amount:
             raise HTTPException(status_code=400, detail="Insufficient funds")
 
-        # Lock receiver row
         receiver = (await db.execute(
             select(Account).where(Account.id == request.receiver_id).with_for_update()
         )).scalar_one_or_none()
         if not receiver:
             raise HTTPException(status_code=404, detail="Receiver account not found")
 
-        # Update balances
         sender.balance -= request.amount
         receiver.balance += request.amount
 
-        # Create transaction record
         txn = Transaction(
             id=uuid.uuid4(),
             sender_id=request.sender_id,
@@ -63,7 +62,6 @@ async def process_transaction(
         await db.flush()
         await db.refresh(txn)
 
-        # Create ledger entries
         debit_entry = LedgerEntry(
             transaction_id=txn.id,
             account_id=request.sender_id,
@@ -78,10 +76,8 @@ async def process_transaction(
         )
         db.add_all([debit_entry, credit_entry])
 
-        # Commit everything
         await db.commit()
 
-        # Prepare result
         result = {
             "id": str(txn.id),
             "sender_id": str(txn.sender_id),
@@ -93,8 +89,7 @@ async def process_transaction(
             "completed_at": txn.created_at.isoformat()
         }
 
-        # Cache result
-        await redis.setex(idem_key, settings.idempotency_ttl_seconds, json.dumps(result))
+        await redis_client.setex(idem_key, settings.idempotency_ttl_seconds, json.dumps(result))
         return result
 
     except HTTPException:
@@ -104,7 +99,7 @@ async def process_transaction(
         await db.rollback()
         raise
     finally:
-        await redis.delete(lock_key)
+        await redis_client.delete(lock_key)
 
 async def get_transaction(db: AsyncSession, txn_id: uuid.UUID):
     result = await db.execute(select(Transaction).where(Transaction.id == txn_id))

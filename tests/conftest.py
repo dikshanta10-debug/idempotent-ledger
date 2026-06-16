@@ -2,11 +2,19 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.database import Base, get_db
+from app.redis_client import get_redis
+from app.routers import accounts, transactions
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import fakeredis
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+
+def create_test_app():
+    app = FastAPI()
+    app.include_router(accounts.router)
+    app.include_router(transactions.router)
+    return app
 
 @pytest_asyncio.fixture(scope="function")
 async def test_session():
@@ -30,24 +38,16 @@ async def fake_redis():
 
 @pytest.fixture(scope="function")
 def client(test_session, fake_redis):
-    # 1) Patch the Redis module BEFORE importing any app code that uses Redis
-    import app.redis_client as redis_mod
-    redis_mod.redis_client = fake_redis
-    async def fake_get_redis():
-        return fake_redis
-    redis_mod.get_redis = fake_get_redis
+    app = create_test_app()
 
-    # 2) NOW import the routers (and thus services) – they’ll see the patched redis module
-    from app.routers import accounts, transactions
-
-    app = FastAPI()
-    app.include_router(accounts.router)
-    app.include_router(transactions.router)
-
-    # 3) Override the database session
     async def override_get_db():
         yield test_session
+
+    async def override_get_redis():
+        return fake_redis
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_redis] = override_get_redis
 
     with TestClient(app) as c:
         yield c

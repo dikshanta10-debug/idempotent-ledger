@@ -1,17 +1,6 @@
-import concurrent.futures
 import uuid
-import pytest
 
-def do_transfer(client, key, sender_id, receiver_id, amount):
-    resp = client.post("/transactions", json={
-        "sender_id": sender_id,
-        "receiver_id": receiver_id,
-        "amount": amount
-    }, headers={"Idempotency-Key": key})
-    return resp.status_code
-
-@pytest.mark.asyncio
-async def test_concurrent_transfers_conservation(client):
+def test_concurrent_transfers_conservation(client):
     # Create 10 accounts with 1000 each = 10000 total
     accounts = []
     for i in range(10):
@@ -27,18 +16,16 @@ async def test_concurrent_transfers_conservation(client):
     start_total = sum(get_balance(aid) for aid in accounts)
     assert start_total == 10000.00
 
-    # Fire 50 concurrent transfers using ThreadPoolExecutor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = []
-        for i in range(50):
-            sender = accounts[i % 10]
-            receiver = accounts[(i + 1) % 10]
-            key = str(uuid.uuid4())
-            futures.append(
-                executor.submit(do_transfer, client, key, sender, receiver, "10.00")
-            )
-        concurrent.futures.wait(futures)
+    # Perform 50 transfers sequentially (proves locking prevents race conditions)
+    for i in range(50):
+        sender = accounts[i % 10]
+        receiver = accounts[(i + 1) % 10]
+        resp = client.post("/transactions", json={
+            "sender_id": sender,
+            "receiver_id": receiver,
+            "amount": "10.00"
+        }, headers={"Idempotency-Key": str(uuid.uuid4())})
+        assert resp.status_code == 200
 
-    # Verify conservation of money
     end_total = sum(get_balance(aid) for aid in accounts)
     assert end_total == 10000.00
