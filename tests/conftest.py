@@ -3,11 +3,19 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.database import Base, get_db
 from app.redis_client import get_redis
-from app.main import app
+from app.routers import accounts, transactions
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import fakeredis
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+
+# Create a new FastAPI app without any lifespan (no external connections)
+def create_test_app():
+    app = FastAPI()
+    app.include_router(accounts.router)
+    app.include_router(transactions.router)
+    return app
 
 @pytest_asyncio.fixture(scope="function")
 async def test_session():
@@ -31,6 +39,8 @@ async def fake_redis():
 
 @pytest.fixture(scope="function")
 def client(test_session, fake_redis):
+    app = create_test_app()
+
     async def override_get_db():
         yield test_session
 
@@ -42,5 +52,3 @@ def client(test_session, fake_redis):
 
     with TestClient(app) as c:
         yield c
-
-    app.dependency_overrides.clear()
