@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.database import Base, get_db
-from app.redis_client import get_redis
+import app.redis_client as redis_module
 from app.routers import accounts, transactions
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,7 +34,11 @@ async def test_session():
 @pytest_asyncio.fixture(scope="function")
 async def fake_redis():
     client = fakeredis.FakeAsyncRedis(decode_responses=True)
+    # Replace the module-level redis_client with our fake
+    original = redis_module.redis_client
+    redis_module.redis_client = client
     yield client
+    redis_module.redis_client = original
     await client.aclose()
 
 @pytest.fixture(scope="function")
@@ -44,11 +48,11 @@ def client(test_session, fake_redis):
     async def override_get_db():
         yield test_session
 
-    async def override_get_redis():
-        return fake_redis
-
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_redis] = override_get_redis
+
+    # We no longer need to override get_redis because the module-level client is already fake
+    # But to keep router-level Depends happy, we provide a no-op override
+    app.dependency_overrides[redis_module.get_redis] = lambda: fake_redis
 
     with TestClient(app) as c:
         yield c

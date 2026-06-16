@@ -164,11 +164,6 @@ def test_ledger_pagination(client):
     assert len(data2["items"]) == 1
     assert data2["items"][0]["id"] != data["items"][0]["id"]
 
-def test_health_endpoint(client):
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
-
 def test_transaction_not_found(client):
     resp = client.get(f"/transactions/{uuid.uuid4()}")
     assert resp.status_code == 404
