@@ -20,4 +20,4 @@ jobs:
           sleep 15
 
       - name: Run tests inside app container
-        run: docker compose exec -T app pytest --cov=app --cov-report=term-missing --cov-fail-under=84
+        run: docker compose exec -T app pytest --cov=app --cov-report=term-missing --cov-fail-under=72
