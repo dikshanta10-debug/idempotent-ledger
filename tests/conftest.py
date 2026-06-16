@@ -21,12 +21,11 @@ async def test_engine():
     engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,
-        connect_args={"timeout": 30}  # prevents "database is locked"
+        connect_args={"timeout": 30}
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
-    # Properly clean up: dispose connections before dropping tables
     await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -60,3 +59,8 @@ async def async_client(test_session, fake_redis):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+# ⭐ Alias so existing test functions that ask for "client" work
+@pytest_asyncio.fixture(scope="function")
+async def client(async_client):
+    return async_client
