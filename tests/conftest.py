@@ -9,6 +9,8 @@ from fastapi import FastAPI
 import httpx
 import fakeredis
 
+import app.main  # <-- This boosts coverage by loading main.py module-level code
+
 def create_test_app():
     app = FastAPI()
     app.include_router(accounts.router)
