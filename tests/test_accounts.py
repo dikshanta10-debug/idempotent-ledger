@@ -1,18 +1,26 @@
-import os
 import pytest
+import asyncio
+from sqlalchemy.exc import OperationalError
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.getenv("CI") == "true", reason="Skipped in CI – table creation delay")
 async def test_create_account(client):
-    response = await client.post("/accounts", json={
-        "owner_name": "Alice",
-        "starting_balance": "1000.00"
-    })
-    assert response.status_code == 201
-    data = response.json()
-    assert data["owner_name"] == "Alice"
-    assert data["balance"] == "1000.00"
-    assert "id" in data
+    for attempt in range(2):
+        try:
+            response = await client.post("/accounts", json={
+                "owner_name": "Alice",
+                "starting_balance": "1000.00"
+            })
+            assert response.status_code == 201
+            data = response.json()
+            assert data["owner_name"] == "Alice"
+            assert data["balance"] == "1000.00"
+            assert "id" in data
+            break
+        except OperationalError as e:
+            if "no such table" in str(e) and attempt == 0:
+                await asyncio.sleep(0.2)
+            else:
+                raise
 
 @pytest.mark.asyncio
 async def test_get_account(client):
