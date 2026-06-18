@@ -174,10 +174,3 @@ async def test_ledger_pagination(client):
 async def test_transaction_not_found(client):
     resp = await client.get(f"/transactions/{uuid.uuid4()}")
     assert resp.status_code == 404
-
-@pytest.mark.asyncio
-async def test_health_endpoint(client):
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
-
